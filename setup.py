@@ -29,6 +29,21 @@ class BuildPyCommand(build_py):
                 cwd=proto_dir,
                 check=True,
             )
+            
+            grpc_file = proto_dir / "inference_pb2_grpc.py"
+            if grpc_file.exists():
+                with open(grpc_file, 'r') as f:
+                    content = f.read()
+                
+                if 'import inference_pb2 as inference__pb2' in content:
+                    content = content.replace(
+                        'import inference_pb2 as inference__pb2',
+                        'from . import inference_pb2 as inference__pb2'
+                    )
+                    
+                    with open(grpc_file, 'w') as f:
+                        f.write(content)
+            
             print("Generated protobuf files successfully")
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             print(f"Warning: Could not generate protobuf files: {e}")
