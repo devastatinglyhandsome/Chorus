@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package inference;
+
+service LLMInference {
+  rpc Generate(GenerateRequest) returns (GenerateResponse);
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message GenerateRequest {
+  string prompt = 1;
+  int32 max_tokens = 2;
+  float temperature = 3;
+  float top_p = 4;
+  int32 top_k = 5;
+  repeated string stop_sequences = 6;
+  bool return_logprobs = 7;
+}
+
+message GenerateResponse {
+  string text = 1;
+  repeated float logprobs = 2;
+  int32 tokens_generated = 3;
+  float generation_time_ms = 4;
+  string model_name = 5;
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum Status {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  Status status = 1;
+  string model_name = 2;
+  float gpu_memory_used_gb = 3;
+}
+
