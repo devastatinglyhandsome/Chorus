@@ -69,6 +69,13 @@ class VotingChorus:
         logger.info("VotingChorus initialized successfully")
 
     async def _start_servers(self):
+        import socket
+        
+        try:
+            mp.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass
+
         processes = []
 
         for i, allocation in enumerate(self.allocations):
@@ -84,10 +91,40 @@ class VotingChorus:
 
             logger.info(
                 f"Started server for {allocation.model_name} on port {port} "
-                f"(GPU {allocation.gpu_id})"
+                f"(GPU {allocation.gpu_id}, PID: {process.pid})"
             )
 
-        await asyncio.sleep(10)
+        logger.info("Waiting for servers to initialize (this may take 60-90 seconds for model loading)...")
+        
+        def check_port(port):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('127.0.0.1', port))
+            sock.close()
+            return result == 0
+
+        max_wait = 120
+        check_interval = 2
+        for attempt in range(max_wait // check_interval):
+            await asyncio.sleep(check_interval)
+            
+            alive_count = sum(1 for p in processes if p.is_alive())
+            if alive_count < len(processes):
+                dead = [p for p in processes if not p.is_alive()]
+                for p in dead:
+                    logger.error(f"Server process {p.pid} died with exit code {p.exitcode}")
+                raise RuntimeError(f"{len(dead)} server process(es) died during startup")
+            
+            ports_ready = sum(1 for i in range(len(self.allocations)) 
+                             if check_port(self.config.grpc_port_base + i))
+            
+            if ports_ready == len(self.allocations):
+                logger.info(f"All {len(self.allocations)} servers are ready")
+                break
+        else:
+            ports_ready = sum(1 for i in range(len(self.allocations)) 
+                             if check_port(self.config.grpc_port_base + i))
+            if ports_ready < len(self.allocations):
+                logger.warning(f"Only {ports_ready}/{len(self.allocations)} servers ready after {max_wait}s")
 
         self._server_processes = processes
 

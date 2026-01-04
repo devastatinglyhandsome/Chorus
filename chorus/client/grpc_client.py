@@ -32,14 +32,15 @@ class AsyncLLMClient:
         self.channel = grpc.aio.insecure_channel(f"{self.host}:{self.port}")
         self.stub = inference_pb2_grpc.LLMInferenceStub(self.channel)
 
-        max_retries = 10
-        for _ in range(max_retries):
+        max_retries = 30
+        for attempt in range(max_retries):
             if await self.health_check():
                 logger.info(f"Connected to model server at {self.host}:{self.port}")
                 return
-            await asyncio.sleep(1)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
 
-        raise RuntimeError(f"Failed to connect to server at {self.host}:{self.port}")
+        raise RuntimeError(f"Failed to connect to server at {self.host}:{self.port} after {max_retries * 2} seconds")
 
     async def health_check(self) -> bool:
         if self.stub is None:
