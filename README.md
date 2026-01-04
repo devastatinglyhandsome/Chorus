@@ -17,11 +17,11 @@ from chorus.core.chorus import VotingChorus, ChorusConfig
 async def main():
     config = ChorusConfig(
         chorus_models=[
-            "meta-llama/Llama-3.2-3b",
-            "Qwen/Qwen2.5-3B",
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            "Qwen/Qwen2.5-3B-Instruct",
         ],
-        judge_model="meta-llama/Llama-3.2-1b",
-        num_gpus=2,
+        judge_model="Qwen/Qwen2.5-1.5B-Instruct",
+        num_gpus=1,
     )
     
     chorus = VotingChorus(config)
