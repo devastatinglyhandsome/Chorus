@@ -1,5 +1,8 @@
 # Main chorus orchestrator for parallel execution and aggregation
 
+import warnings
+warnings.filterwarnings('ignore', message=".*MessageFactory.*GetPrototype.*")
+
 import asyncio
 import logging
 import multiprocessing as mp
@@ -70,6 +73,7 @@ class VotingChorus:
 
     async def _start_servers(self):
         import socket
+        import sys
         
         try:
             mp.set_start_method('spawn', force=True)
@@ -94,16 +98,20 @@ class VotingChorus:
                 f"(GPU {allocation.gpu_id}, PID: {process.pid})"
             )
 
-        logger.info("Waiting for servers to initialize (this may take 60-90 seconds for model loading)...")
+        logger.info("Waiting for servers to initialize (this may take 3-5 minutes for model loading on first run)...")
         
         def check_port(port):
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('127.0.0.1', port))
-            sock.close()
-            return result == 0
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.1)
+                result = sock.connect_ex(('127.0.0.1', port))
+                sock.close()
+                return result == 0
+            except:
+                return False
 
-        max_wait = 120
-        check_interval = 2
+        max_wait = 300
+        check_interval = 5
         for attempt in range(max_wait // check_interval):
             await asyncio.sleep(check_interval)
             
@@ -112,19 +120,37 @@ class VotingChorus:
                 dead = [p for p in processes if not p.is_alive()]
                 for p in dead:
                     logger.error(f"Server process {p.pid} died with exit code {p.exitcode}")
-                raise RuntimeError(f"{len(dead)} server process(es) died during startup")
+                    logger.error(f"Process args: {p.args}")
+                raise RuntimeError(f"{len(dead)} server process(es) died during startup. Check logs above for errors.")
             
             ports_ready = sum(1 for i in range(len(self.allocations)) 
                              if check_port(self.config.grpc_port_base + i))
             
+            elapsed = (attempt + 1) * check_interval
+            if attempt % 6 == 0 or ports_ready > 0:
+                logger.info(f"Waiting... {ports_ready}/{len(self.allocations)} servers ready ({elapsed}s elapsed)")
+            
             if ports_ready == len(self.allocations):
-                logger.info(f"All {len(self.allocations)} servers are ready")
+                logger.info(f"All {len(self.allocations)} servers are ready after {elapsed}s")
                 break
         else:
             ports_ready = sum(1 for i in range(len(self.allocations)) 
                              if check_port(self.config.grpc_port_base + i))
-            if ports_ready < len(self.allocations):
-                logger.warning(f"Only {ports_ready}/{len(self.allocations)} servers ready after {max_wait}s")
+            alive_count = sum(1 for p in processes if p.is_alive())
+            logger.error(f"Only {ports_ready}/{len(self.allocations)} servers ready after {max_wait}s")
+            logger.error(f"{alive_count}/{len(self.allocations)} processes still alive")
+            for i, p in enumerate(processes):
+                logger.error(f"Process {i} (PID {p.pid}): alive={p.is_alive()}, exitcode={p.exitcode}")
+            if ports_ready == 0 and alive_count == len(processes):
+                raise RuntimeError(
+                    f"Servers are running but ports not accessible after {max_wait}s. "
+                    f"Model loading may be taking longer than expected. "
+                    f"Try using a single model first to test, or check GPU memory."
+                )
+            elif ports_ready == 0:
+                raise RuntimeError(
+                    f"All server processes failed. Check logs above for error messages."
+                )
 
         self._server_processes = processes
 

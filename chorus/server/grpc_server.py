@@ -1,5 +1,8 @@
 # gRPC server wrapping vLLM models for inference
 
+import warnings
+warnings.filterwarnings('ignore', message=".*MessageFactory.*GetPrototype.*")
+
 import grpc
 import logging
 from concurrent import futures
@@ -98,24 +101,35 @@ class LLMInferenceServicer(inference_pb2_grpc.LLMInferenceServicer):
 
 def serve(allocation: ModelAllocation, port: int):
     import os
+    import sys
+    
     os.environ["CUDA_VISIBLE_DEVICES"] = str(allocation.gpu_id)
-
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    servicer = LLMInferenceServicer(allocation)
-
-    servicer.load_model()
-
-    inference_pb2_grpc.add_LLMInferenceServicer_to_server(servicer, server)
-
-    server.add_insecure_port(f'[::]:{port}')
-    server.start()
-
-    logger.info(f"gRPC server started on port {port} for model {allocation.model_name}")
-
+    
     try:
-        server.wait_for_termination()
-    except KeyboardInterrupt:
-        server.stop(0)
+        logger.info(f"Starting server process for {allocation.model_name} on port {port}")
+        
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        servicer = LLMInferenceServicer(allocation)
+
+        logger.info(f"Loading model {allocation.model_name}...")
+        servicer.load_model()
+        logger.info(f"Model {allocation.model_name} loaded successfully")
+
+        inference_pb2_grpc.add_LLMInferenceServicer_to_server(servicer, server)
+
+        server.add_insecure_port(f'[::]:{port}')
+        server.start()
+
+        logger.info(f"gRPC server started on port {port} for model {allocation.model_name}")
+
+        try:
+            server.wait_for_termination()
+        except KeyboardInterrupt:
+            logger.info(f"Server on port {port} shutting down")
+            server.stop(0)
+    except Exception as e:
+        logger.error(f"Fatal error in server process for {allocation.model_name}: {e}", exc_info=True)
+        sys.exit(1)
 
 
 def main():

@@ -1,5 +1,8 @@
 # Async gRPC client for communicating with model servers
 
+import warnings
+warnings.filterwarnings('ignore', message=".*MessageFactory.*GetPrototype.*")
+
 import asyncio
 import grpc
 import logging
